@@ -5,6 +5,8 @@ import 'package:ai_health_manager/features/profile/data/models/user_profile_mode
 import 'package:ai_health_manager/features/profile/data/repositories/profile_repository_impl.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('Profile Feature Tests', () {
     final repo = ProfileRepositoryImpl();
 
