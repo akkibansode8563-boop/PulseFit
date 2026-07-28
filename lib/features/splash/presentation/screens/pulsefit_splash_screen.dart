@@ -161,10 +161,23 @@ class _PulseFitSplashScreenState extends ConsumerState<PulseFitSplashScreen>
     );
   }
 
-  void _navigate() {
+  Future<void> _navigate() async {
     final profileState = ref.read(profileProvider);
-    final isComplete =
-        (profileState.asData?.value?.isOnboardingComplete) ?? false;
+    bool isComplete = profileState.asData?.value.isOnboardingComplete ?? false;
+
+    if (!isComplete) {
+      // Direct SharedPreferences fallback check
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final jsonStr = prefs.getString('pulsefit_user_profile_json');
+        if (jsonStr != null && jsonStr.contains('"isOnboardingComplete":true')) {
+          isComplete = true;
+        }
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(

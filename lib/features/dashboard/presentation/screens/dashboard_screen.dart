@@ -2,15 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../../core/services/app_update_service.dart';
 import '../../../../core/services/live_ota_sync_engine.dart';
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/theme_provider.dart';
 import '../../../../core/widgets/animated_counter_text.dart';
 import '../../../../core/widgets/daily_routine_timeline_dialog.dart';
 import '../../../../core/widgets/glowing_vitality_ring.dart';
 import '../../../../core/widgets/horizontal_calendar_strip.dart';
 import '../../../../core/widgets/pulsefit_logo.dart';
-import '../../../../core/widgets/smile_celebration_overlay.dart';
 import '../../../reminders/presentation/screens/reminders_screen.dart';
 import '../../../ai/presentation/screens/ai_coach_screen.dart';
 import '../../../nutrition/presentation/providers/nutrition_provider.dart';
@@ -38,6 +37,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       LiveOtaSyncEngine.syncOnStartup(context);
+      AppUpdateService.checkOnStartup(context);
     });
   }
 
