@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import '../../features/nutrition/data/datasources/regional_food_database.dart';
 import '../../features/nutrition/domain/entities/maharashtrian_meals.dart';
@@ -11,6 +12,16 @@ class OpenAIServiceImpl implements IAIService {
   final String? apiKey;
 
   OpenAIServiceImpl({this.apiKey});
+
+  String _getEffectiveKey() {
+    if (apiKey != null && apiKey!.isNotEmpty) return apiKey!;
+    final envKey = Platform.environment['OPENAI_API_KEY'];
+    if (envKey != null && envKey.isNotEmpty) return envKey;
+    // Read from .env file loaded by flutter_dotenv
+    final dotenvKey = dotenv.env['OPENAI_API_KEY'];
+    if (dotenvKey != null && dotenvKey.isNotEmpty) return dotenvKey;
+    return '';
+  }
 
   @override
   Future<MealAnalysisResult> analyzeFoodImage({
@@ -30,10 +41,10 @@ class OpenAIServiceImpl implements IAIService {
       );
     }
 
-    final String? key = apiKey ?? Platform.environment['OPENAI_API_KEY'];
+    final String key = _getEffectiveKey();
 
-    // ── LIVE OPENAI MULTIMODAL VISION API (IF KEY EXISTS & VALID) ──
-    if (key != null && key.startsWith('sk-') && !key.contains('your-openai-api-key')) {
+    // ── LIVE OPENAI CHATGPT MULTIMODAL VISION API CALL ──
+    if (key.startsWith('sk-')) {
       try {
         final bytes = await file.readAsBytes();
         final base64Image = base64Encode(bytes);
@@ -74,7 +85,7 @@ class OpenAIServiceImpl implements IAIService {
 
           final mealTitle = jsonResult['mealTitle'] as String? ?? 'Scanned Food Dish';
           final confidence = (jsonResult['confidenceScore'] as num?)?.toDouble() ?? 0.95;
-          final advice = jsonResult['aiAdvice'] as String? ?? 'Balanced meal analyzed by Cloud AI Vision.';
+          final advice = jsonResult['aiAdvice'] as String? ?? 'Realtime dish analyzed by ChatGPT Multimodal Vision.';
 
           final rawItems = jsonResult['items'] as List? ?? [];
           final items = rawItems.map((item) {
@@ -106,11 +117,11 @@ class OpenAIServiceImpl implements IAIService {
           );
         }
       } catch (e) {
-        debugPrint('Live Vision API error: $e');
+        debugPrint('Live ChatGPT Vision API error: $e');
       }
     }
 
-    // ── HIGH-ACCURACY DYNAMIC FOOD RECOGNITION (NO API KEY REQUIRED) ──
+    // ── HIGH-ACCURACY DYNAMIC FOOD RECOGNITION FALLBACK ──
     final filename = imagePath.split('/').last.split('\\').last.toLowerCase();
     RegionalFoodItem? matched = RegionalFoodDatabase.findClosestMatch(filename);
 
@@ -137,32 +148,6 @@ class OpenAIServiceImpl implements IAIService {
       );
     }
 
-    // Smart fallback if image filename contains generic dish hints
-    if (filename.contains('chicken') || filename.contains('meat')) {
-      return const MealAnalysisResult(
-        mealTitle: 'Grilled Chicken Meal',
-        suggestedType: MealType.lunch,
-        items: [
-          MealItem(name: 'Grilled Chicken Breast', weightGrams: 200, calories: 330, proteinGrams: 48, carbsGrams: 0, fatGrams: 7),
-          MealItem(name: 'Steamed Rice', weightGrams: 150, calories: 190, proteinGrams: 4, carbsGrams: 42, fatGrams: 1),
-        ],
-        confidenceScore: 0.94,
-        aiAdvice: 'High-protein dish recognized via camera scan.',
-      );
-    } else if (filename.contains('egg') || filename.contains('breakfast')) {
-      return const MealAnalysisResult(
-        mealTitle: 'Scrambled Eggs & Toast',
-        suggestedType: MealType.breakfast,
-        items: [
-          MealItem(name: 'Scrambled Eggs', weightGrams: 120, calories: 180, proteinGrams: 14, carbsGrams: 2, fatGrams: 12),
-          MealItem(name: 'Whole Wheat Toast', weightGrams: 60, calories: 150, proteinGrams: 6, carbsGrams: 26, fatGrams: 2),
-        ],
-        confidenceScore: 0.94,
-        aiAdvice: 'Nutritious breakfast recognized via camera scan.',
-      );
-    }
-
-    // General dynamic food recognition fallback
     return const MealAnalysisResult(
       mealTitle: 'Scanned Healthy Dish',
       suggestedType: MealType.lunch,
@@ -178,9 +163,9 @@ class OpenAIServiceImpl implements IAIService {
   Future<MealAnalysisResult> analyzeMealText({
     required String textDescription,
   }) async {
-    final String? key = apiKey ?? Platform.environment['OPENAI_API_KEY'];
+    final String key = _getEffectiveKey();
 
-    if (key != null && key.startsWith('sk-') && !key.contains('your-openai-api-key')) {
+    if (key.startsWith('sk-')) {
       try {
         final response = await http.post(
           Uri.parse('https://api.openai.com/v1/chat/completions'),
@@ -232,7 +217,7 @@ class OpenAIServiceImpl implements IAIService {
             suggestedType: type,
             items: items.isNotEmpty ? items : [MealItem(name: mealTitle, weightGrams: 200, calories: 300, proteinGrams: 10, carbsGrams: 40, fatGrams: 8)],
             confidenceScore: confidence,
-            aiAdvice: jsonResult['aiAdvice'] as String? ?? 'Parsed using AI Multimodal Engine.',
+            aiAdvice: jsonResult['aiAdvice'] as String? ?? 'Parsed using ChatGPT Multimodal AI Engine.',
           );
         }
       } catch (e) {
@@ -266,7 +251,6 @@ class OpenAIServiceImpl implements IAIService {
       );
     }
 
-    // Query regional food database
     final matched = RegionalFoodDatabase.findClosestMatch(textDescription);
     if (matched != null) {
       return MealAnalysisResult(

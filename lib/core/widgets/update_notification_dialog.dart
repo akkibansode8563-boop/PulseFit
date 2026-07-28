@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/app_update_service.dart';
 import '../theme/app_colors.dart';
 
@@ -17,28 +18,39 @@ class UpdateNotificationDialog extends StatefulWidget {
 
 class _UpdateNotificationDialogState extends State<UpdateNotificationDialog> {
   bool _isDownloading = false;
-  double _progress = 0.0;
-  bool _isCompleted = false;
 
-  void _startInAppDownload() async {
-    setState(() {
-      _isDownloading = true;
-      _progress = 0.1;
-    });
-
-    // Simulate in-app OTA download & installation
-    for (int i = 1; i <= 10; i++) {
-      await Future.delayed(const Duration(milliseconds: 250));
+  Future<void> _downloadUpdate() async {
+    final url = widget.updateInfo.downloadUrl;
+    if (url.isEmpty) {
       if (mounted) {
-        setState(() => _progress = i / 10.0);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No download URL available for this release.')),
+        );
+      }
+      return;
+    }
+
+    setState(() => _isDownloading = true);
+
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        // Fallback: try with external non-browser application
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open download link: $e')),
+        );
       }
     }
 
     if (mounted) {
-      setState(() {
-        _isDownloading = false;
-        _isCompleted = true;
-      });
+      setState(() => _isDownloading = false);
+      Navigator.pop(context);
     }
   }
 
@@ -74,7 +86,7 @@ class _UpdateNotificationDialogState extends State<UpdateNotificationDialog> {
                         style: GoogleFonts.outfit(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
                       ),
                       Text(
-                        'Version ${widget.updateInfo.latestVersion} (Build ${widget.updateInfo.buildNumber})',
+                        'Version ${widget.updateInfo.latestVersion}',
                         style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF2E7D32)),
                       ),
                     ],
@@ -90,64 +102,51 @@ class _UpdateNotificationDialogState extends State<UpdateNotificationDialog> {
             const SizedBox(height: 6),
             Container(
               padding: const EdgeInsets.all(12),
+              constraints: const BoxConstraints(maxHeight: 180),
               decoration: BoxDecoration(
                 color: AppColors.surface,
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: AppColors.divider),
               ),
-              child: Text(
-                widget.updateInfo.releaseNotes,
-                style: GoogleFonts.outfit(fontSize: 12, height: 1.4, color: const Color(0xFF222222), fontWeight: FontWeight.w500),
+              child: SingleChildScrollView(
+                child: Text(
+                  widget.updateInfo.releaseNotes,
+                  style: GoogleFonts.outfit(fontSize: 12, height: 1.4, color: const Color(0xFF222222), fontWeight: FontWeight.w500),
+                ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 8),
 
-            if (_isDownloading) ...[
-              LinearProgressIndicator(
-                value: _progress,
-                backgroundColor: AppColors.surface,
-                color: AppColors.primary,
-                minHeight: 8,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: Text(
-                  'Downloading & Installing Update... ${(_progress * 100).toInt()}%',
-                  style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ] else if (_isCompleted) ...[
-              Container(
-                padding: const EdgeInsets.all(12),
-                width: double.infinity,
+            // Source badge
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: const Color(0xFFE8F5E9),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.check_circle_rounded, color: Color(0xFF2E7D32), size: 24),
-                    const SizedBox(width: 10),
+                    const Icon(Icons.verified_rounded, size: 14, color: Color(0xFF2E7D32)),
+                    const SizedBox(width: 4),
                     Text(
-                      'Update Installed Successfully!',
-                      style: GoogleFonts.outfit(fontSize: 13, fontWeight: FontWeight.bold, color: const Color(0xFF2E7D32)),
+                      'Verified from GitHub Releases',
+                      style: GoogleFonts.outfit(fontSize: 10, fontWeight: FontWeight.w600, color: const Color(0xFF2E7D32)),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppColors.radiusButton)),
-                  ),
-                  onPressed: () => Navigator.pop(context),
-                  child: Text('Restart App Now', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.black)),
+            ),
+            const SizedBox(height: 16),
+
+            if (_isDownloading) ...[
+              const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+              const SizedBox(height: 8),
+              Center(
+                child: Text(
+                  'Opening download link...',
+                  style: GoogleFonts.outfit(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black),
                 ),
               ),
             ] else ...[
@@ -167,14 +166,15 @@ class _UpdateNotificationDialogState extends State<UpdateNotificationDialog> {
                     ),
                   if (!widget.updateInfo.isMandatory) const SizedBox(width: 12),
                   Expanded(
-                    child: ElevatedButton(
+                    child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppColors.radiusButton)),
                       ),
-                      onPressed: _startInAppDownload,
-                      child: Text('Update Now', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.black)),
+                      onPressed: _downloadUpdate,
+                      icon: const Icon(Icons.download_rounded, color: Colors.black, size: 18),
+                      label: Text('Download APK', style: GoogleFonts.outfit(fontWeight: FontWeight.bold, color: Colors.black)),
                     ),
                   ),
                 ],

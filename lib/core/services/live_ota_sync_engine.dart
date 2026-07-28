@@ -26,17 +26,20 @@ class LiveOtaSyncEngine {
       final prefs = await SharedPreferences.getInstance();
       final lastVersion = prefs.getString(_keyLastSyncedVersion) ?? '1.0.0';
 
-      // Remote manifest payload (simulated live backend sync payload)
-      const currentRemoteSyncVersion = '1.2.0';
+      // Remote manifest payload — updated for Pipeline v2.0
+      const currentRemoteSyncVersion = '2.0.0';
       const syncPayload = OtaPayloadInfo(
         syncVersion: currentRemoteSyncVersion,
-        syncTitle: 'Direct OTA Feature Sync 1.2.0',
+        syncTitle: 'PulseFit v2.0 — AI Food Scanner Pipeline',
         newFeatures: [
-          '✨ Native PulseFit Squircle Launcher Icon Synced',
-          '📸 Food Scanner Camera & Gallery Photo Picker Activated',
-          '😃 Smile Time Celebrations Added on Water & Food Logging',
-          '⏰ Reminders & Alarms Manager with 30m / 1h / 2h Water Interval Adjuster',
-          '🥗 30+ Maharashtrian & Regional Indian Food Macro Profiles Loaded',
+          '📸 Enterprise AI Food Recognition Pipeline v2.0',
+          '☁️ Live ChatGPT Multimodal Vision API Integration',
+          '📶 Pre-Flight Network Verification Before Scan',
+          '🔍 Image Quality Validation (Blur / Brightness Check)',
+          '🎯 Tiered Confidence Scoring (High / Match / Review / Low)',
+          '🥗 6 Macro Nutrients: Calories, Protein, Carbs, Fat, Fiber, Sugar',
+          '📏 Portion Size Multiplier: 0.5x Small → 2.0x Feast',
+          '🔔 Real GitHub Releases-Based Update Checker',
         ],
       );
 
@@ -53,7 +56,7 @@ class LiveOtaSyncEngine {
           showDialog(
             context: context,
             barrierDismissible: true,
-            builder: (_) => WhatsNewDialog(payload: syncPayload),
+            builder: (_) => const WhatsNewDialog(payload: syncPayload),
           );
         }
       }
