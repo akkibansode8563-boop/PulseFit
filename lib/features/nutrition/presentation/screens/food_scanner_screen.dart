@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import '../../../../core/services/image_quality_service.dart';
+import '../../../../core/services/network_checker_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/smile_celebration_overlay.dart';
 import '../providers/nutrition_provider.dart';
 import '../widgets/food_verification_sheet.dart';
+import '../widgets/internet_required_sheet.dart';
 import '../widgets/voice_logging_sheet.dart';
 
 class FoodScannerScreen extends ConsumerStatefulWidget {
@@ -22,6 +25,26 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
   bool _isAnalyzing = false;
 
   Future<void> _pickImage(ImageSource source) async {
+    // ── STAGE 1: Network Check before Camera / AI Analysis ──
+    final bool isOnline = await NetworkCheckerService.isConnected();
+    if (!isOnline) {
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => InternetRequiredSheet(
+          onRetry: () => _pickImage(source),
+          onQueueOffline: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('📷 Photo saved to Offline AI Queue. Analysis will run when connected.')),
+            );
+          },
+        ),
+      );
+      return;
+    }
+
     try {
       final XFile? image = await _picker.pickImage(
         source: source,
@@ -29,12 +52,25 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
         maxWidth: 1080,
       );
       if (image != null) {
+        // ── STAGE 2: Pre-Flight Image Quality Check (Blur / Dark) ──
+        final qualityResult = await ImageQualityService.validateImage(image.path);
+        if (!qualityResult.isValid) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('⚠️ Quality Alert: ${qualityResult.message}'),
+              backgroundColor: Colors.orange.shade800,
+            ),
+          );
+          return;
+        }
+
         setState(() {
           _selectedImage = image;
           _isAnalyzing = true;
         });
 
-        // Analyze image using AI Service
+        // ── STAGE 3 & 4: Cloud AI Vision Analysis ──
         final aiService = ref.read(aiServiceProvider);
         final result = await aiService.analyzeFoodImage(imagePath: image.path);
 
@@ -44,13 +80,14 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
           _isAnalyzing = false;
         });
 
-        // Show User Verification & Edit Sheet
+        // ── STAGE 5: Show Verification Sheet with Tiered Confidence ──
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
           backgroundColor: Colors.transparent,
           builder: (ctx) => FoodVerificationSheet(
             initialAnalysis: result,
+            onScanAgain: () => _pickImage(source),
             onConfirmed: (finalMeal) async {
               final repo = ref.read(nutritionRepositoryProvider);
               await repo.logMeal(finalMeal);
@@ -73,15 +110,13 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
         _isAnalyzing = false;
       });
 
-      // Fallback handling if camera hardware is unavailable on emulator/device
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Camera/Gallery notification: $e. Opening photo library fallback...'),
+          content: Text('Camera Notification: $e. Switching to gallery photo selection...'),
           duration: const Duration(seconds: 3),
         ),
       );
 
-      // If camera failed, fallback to gallery
       if (source == ImageSource.camera) {
         _pickImage(ImageSource.gallery);
       }
@@ -123,9 +158,24 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
                             style: GoogleFonts.sora(fontSize: 14, color: Colors.white70),
                           ),
                           const SizedBox(height: 8),
-                          Text(
-                            '95%+ AI Multimodal Recognition Active',
-                            style: GoogleFonts.sora(fontSize: 12, color: AppColors.primary),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: AppColors.primary.withValues(alpha: 0.5)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.cloud_done_rounded, color: AppColors.primary, size: 14),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Cloud AI Recognition • Internet Active',
+                                  style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -155,7 +205,7 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
                     const CircularProgressIndicator(color: AppColors.primary),
                     const SizedBox(height: 16),
                     Text(
-                      'AI Analyzing Food Dish & Macros (95%+ Match)...',
+                      'Cloud AI Multimodal Analyzing Food & 6 Macros...',
                       style: GoogleFonts.sora(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                   ],
