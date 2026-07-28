@@ -1,0 +1,23 @@
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# Environment secrets
+.env
+
+# Android
+android/**/*.iml
+android/.gradle
+android/captures/
+android/gradlew
+android/gradlew.bat
+android/local.properties
+
+# OS specific
+.DS_Store
+Thumbs.db
