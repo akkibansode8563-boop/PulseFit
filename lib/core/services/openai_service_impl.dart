@@ -17,9 +17,11 @@ class OpenAIServiceImpl implements IAIService {
     if (apiKey != null && apiKey!.isNotEmpty) return apiKey!;
     final envKey = Platform.environment['OPENAI_API_KEY'];
     if (envKey != null && envKey.isNotEmpty) return envKey;
-    // Read from .env file loaded by flutter_dotenv
-    final dotenvKey = dotenv.env['OPENAI_API_KEY'];
-    if (dotenvKey != null && dotenvKey.isNotEmpty) return dotenvKey;
+    // Read from .env file loaded by flutter_dotenv safely
+    if (dotenv.isInitialized) {
+      final dotenvKey = dotenv.env['OPENAI_API_KEY'];
+      if (dotenvKey != null && dotenvKey.isNotEmpty) return dotenvKey;
+    }
     return '';
   }
 

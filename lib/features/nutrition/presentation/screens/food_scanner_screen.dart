@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../../../core/services/image_quality_service.dart';
 import '../../../../core/services/network_checker_service.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -43,6 +44,52 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
         ),
       );
       return;
+    }
+
+    // ── STAGE 1.5: Explicit Runtime Camera Permission Request ──
+    if (source == ImageSource.camera) {
+      final cameraStatus = await Permission.camera.request();
+      if (cameraStatus.isPermanentlyDenied) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('📷 Camera permission is permanently denied. Please grant permission in Settings.'),
+            action: SnackBarAction(
+              label: 'Settings',
+              onPressed: () => openAppSettings(),
+            ),
+          ),
+        );
+        return;
+      } else if (cameraStatus.isDenied) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Camera permission is required to capture food photos. Switching to Gallery...'),
+          ),
+        );
+        _pickImage(ImageSource.gallery);
+        return;
+      }
+    } else if (source == ImageSource.gallery) {
+      final photoStatus = await Permission.photos.request();
+      if (photoStatus.isPermanentlyDenied) {
+        // On Android 13+, photos permission handles media library
+        final storageStatus = await Permission.storage.request();
+        if (storageStatus.isPermanentlyDenied) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('🖼️ Gallery access is permanently denied. Please grant permission in Settings.'),
+              action: SnackBarAction(
+                label: 'Settings',
+                onPressed: () => openAppSettings(),
+              ),
+            ),
+          );
+          return;
+        }
+      }
     }
 
     try {
