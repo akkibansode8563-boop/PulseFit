@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -21,32 +22,75 @@ class FoodScannerScreen extends ConsumerStatefulWidget {
 }
 
 class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
+  CameraController? _cameraController;
+  List<CameraDescription>? _cameras;
+  bool _isCameraInitialized = false;
+  bool _isCameraLoading = true;
+
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
   bool _isAnalyzing = false;
 
-  Future<void> _pickImage(ImageSource source) async {
-    // ── STAGE 1: Network Check before Camera / AI Analysis ──
-    final bool isOnline = await NetworkCheckerService.isConnected();
-    if (!isOnline) {
-      if (!mounted) return;
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (ctx) => InternetRequiredSheet(
-          onRetry: () => _pickImage(source),
-          onQueueOffline: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('📷 Photo saved to Offline AI Queue. Analysis will run when connected.')),
-            );
-          },
-        ),
-      );
-      return;
+  @override
+  void initState() {
+    super.initState();
+    _initNativeCamera();
+  }
+
+  Future<void> _initNativeCamera() async {
+    try {
+      final status = await Permission.camera.request();
+      if (status.isGranted) {
+        _cameras = await availableCameras();
+        if (_cameras != null && _cameras!.isNotEmpty) {
+          _cameraController = CameraController(
+            _cameras!.first,
+            ResolutionPreset.high,
+            enableAudio: false,
+          );
+          await _cameraController!.initialize();
+          if (mounted) {
+            setState(() {
+              _isCameraInitialized = true;
+              _isCameraLoading = false;
+            });
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('Native Camera Init Notice: $e');
     }
 
-    // ── STAGE 1.5: Explicit Runtime Camera Permission Request ──
+    if (mounted) {
+      setState(() {
+        _isCameraInitialized = false;
+        _isCameraLoading = false;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _cameraController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _captureFromLiveCamera() async {
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        final XFile capturedFile = await _cameraController!.takePicture();
+        await _processImage(capturedFile.path);
+      } catch (e) {
+        debugPrint('Camera capture error: $e. Falling back to system picker...');
+        _pickImage(ImageSource.camera);
+      }
+    } else {
+      _pickImage(ImageSource.camera);
+    }
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
     if (source == ImageSource.camera) {
       final cameraStatus = await Permission.camera.request();
       if (cameraStatus.isPermanentlyDenied) {
@@ -61,34 +105,6 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
           ),
         );
         return;
-      } else if (cameraStatus.isDenied) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('⚠️ Camera permission is required to capture food photos. Switching to Gallery...'),
-          ),
-        );
-        _pickImage(ImageSource.gallery);
-        return;
-      }
-    } else if (source == ImageSource.gallery) {
-      final photoStatus = await Permission.photos.request();
-      if (photoStatus.isPermanentlyDenied) {
-        // On Android 13+, photos permission handles media library
-        final storageStatus = await Permission.storage.request();
-        if (storageStatus.isPermanentlyDenied) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('🖼️ Gallery access is permanently denied. Please grant permission in Settings.'),
-              action: SnackBarAction(
-                label: 'Settings',
-                onPressed: () => openAppSettings(),
-              ),
-            ),
-          );
-          return;
-        }
       }
     }
 
@@ -99,75 +115,94 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
         maxWidth: 1080,
       );
       if (image != null) {
-        // ── STAGE 2: Pre-Flight Image Quality Check (Blur / Dark) ──
-        final qualityResult = await ImageQualityService.validateImage(image.path);
-        if (!qualityResult.isValid) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('⚠️ Quality Alert: ${qualityResult.message}'),
-              backgroundColor: Colors.orange.shade800,
-            ),
-          );
-          return;
-        }
-
-        setState(() {
-          _selectedImage = image;
-          _isAnalyzing = true;
-        });
-
-        // ── STAGE 3 & 4: Cloud AI Vision Analysis ──
-        final aiService = ref.read(aiServiceProvider);
-        final result = await aiService.analyzeFoodImage(imagePath: image.path);
-
-        if (!mounted) return;
-
-        setState(() {
-          _isAnalyzing = false;
-        });
-
-        // ── STAGE 5: Show Verification Sheet with Tiered Confidence ──
-        showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (ctx) => FoodVerificationSheet(
-            initialAnalysis: result,
-            onScanAgain: () => _pickImage(source),
-            onConfirmed: (finalMeal) async {
-              final repo = ref.read(nutritionRepositoryProvider);
-              await repo.logMeal(finalMeal);
-              ref.invalidate(nutritionProvider);
-
-              if (mounted) {
-                SmileCelebrationOverlay.show(
-                  context,
-                  message: 'Log Saved: ${finalMeal.title} (${finalMeal.totalCalories} kcal)! 😃',
-                  emoji: '😋',
-                );
-              }
-            },
-          ),
-        );
+        await _processImage(image.path);
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _isAnalyzing = false;
-      });
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Camera Notification: $e. Switching to gallery photo selection...'),
-          duration: const Duration(seconds: 3),
+          content: Text('Photo Selection Notice: $e. Please pick photo from gallery.'),
         ),
       );
-
-      if (source == ImageSource.camera) {
-        _pickImage(ImageSource.gallery);
-      }
     }
+  }
+
+  Future<void> _processImage(String imagePath) async {
+    // ── STAGE 1: Network Check before Camera / AI Analysis ──
+    final bool isOnline = await NetworkCheckerService.isConnected();
+    if (!isOnline) {
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => InternetRequiredSheet(
+          onRetry: () => _processImage(imagePath),
+          onQueueOffline: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('📷 Photo saved to Offline AI Queue. Analysis will run when connected.')),
+            );
+          },
+        ),
+      );
+      return;
+    }
+
+    // ── STAGE 2: Pre-Flight Image Quality Check ──
+    final qualityResult = await ImageQualityService.validateImage(imagePath);
+    if (!qualityResult.isValid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ Quality Alert: ${qualityResult.message}'),
+          backgroundColor: Colors.orange.shade800,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _selectedImage = XFile(imagePath);
+      _isAnalyzing = true;
+    });
+
+    // ── STAGE 3 & 4: Cloud AI Vision Analysis ──
+    final aiService = ref.read(aiServiceProvider);
+    final result = await aiService.analyzeFoodImage(imagePath: imagePath);
+
+    if (!mounted) return;
+
+    setState(() {
+      _isAnalyzing = false;
+    });
+
+    // ── STAGE 5: Show Verification Sheet ──
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => FoodVerificationSheet(
+        initialAnalysis: result,
+        onScanAgain: () {
+          setState(() {
+            _selectedImage = null;
+          });
+        },
+        onConfirmed: (finalMeal) async {
+          final repo = ref.read(nutritionRepositoryProvider);
+          await repo.logMeal(finalMeal);
+          ref.invalidate(nutritionProvider);
+
+          if (mounted) {
+            SmileCelebrationOverlay.show(
+              context,
+              message: 'Log Saved: ${finalMeal.title} (${finalMeal.totalCalories} kcal)! 😃',
+              emoji: '😋',
+            );
+          }
+        },
+      ),
+    );
   }
 
   @override
@@ -188,46 +223,43 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
       ),
       body: Stack(
         children: [
-          // Viewfinder / Selected Image Preview Container
+          // ── Live Camera Preview / Captured Photo Viewfinder ──
           Positioned.fill(
             child: _selectedImage != null
                 ? Image.file(File(_selectedImage!.path), fit: BoxFit.cover)
-                : Container(
-                    color: const Color(0xFF1E2A24),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.camera_alt_outlined, size: 70, color: AppColors.primary.withValues(alpha: 0.6)),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Point camera at food dish or choose photo',
-                            style: GoogleFonts.sora(fontSize: 14, color: Colors.white70),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: AppColors.primary.withValues(alpha: 0.5)),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.cloud_done_rounded, color: AppColors.primary, size: 14),
-                                const SizedBox(width: 6),
+                : (_isCameraInitialized && _cameraController != null)
+                    ? CameraPreview(_cameraController!)
+                    : Container(
+                        color: const Color(0xFF1E2A24),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (_isCameraLoading)
+                                const CircularProgressIndicator(color: AppColors.primary)
+                              else ...[
+                                Icon(Icons.camera_alt_outlined, size: 70, color: AppColors.primary.withValues(alpha: 0.6)),
+                                const SizedBox(height: 16),
                                 Text(
-                                  'Cloud AI Recognition • Internet Active',
-                                  style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
+                                  'Tap shutter button to snap or choose photo',
+                                  style: GoogleFonts.sora(fontSize: 14, color: Colors.white70),
+                                ),
+                                const SizedBox(height: 12),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.primary,
+                                    foregroundColor: Colors.black,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                  ),
+                                  onPressed: () => _pickImage(ImageSource.gallery),
+                                  icon: const Icon(Icons.photo_library_rounded, size: 18),
+                                  label: Text('Select Photo from Gallery', style: GoogleFonts.sora(fontWeight: FontWeight.bold)),
                                 ),
                               ],
-                            ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
           ),
 
           // Laser Scanner Frame Overlay
@@ -238,13 +270,48 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(color: AppColors.primary, width: 3),
+                boxShadow: [
+                  BoxShadow(color: AppColors.primary.withValues(alpha: 0.2), blurRadius: 16, spreadRadius: 2),
+                ],
+              ),
+            ),
+          ),
+
+          // Status Badge Top Overlay
+          Positioned(
+            top: 20,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _isCameraInitialized ? 'Live Camera Feed Active' : 'Cloud AI Multimodal Ready',
+                      style: GoogleFonts.sora(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
 
           if (_isAnalyzing)
             Container(
-              color: Colors.black.withValues(alpha: 0.75),
+              color: Colors.black.withValues(alpha: 0.8),
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -260,7 +327,7 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
               ),
             ),
 
-          // Bottom Action Bar: Camera, Gallery & Voice Selection
+          // Bottom Action Bar: Gallery, Live Capture & Voice Selection
           Positioned(
             bottom: 40,
             left: 20,
@@ -285,9 +352,9 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
                     tooltip: 'Choose from Gallery / Library',
                   ),
 
-                  // Camera Snap Button
+                  // Central Snap Shutter Button
                   GestureDetector(
-                    onTap: () => _pickImage(ImageSource.camera),
+                    onTap: _captureFromLiveCamera,
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: const BoxDecoration(
