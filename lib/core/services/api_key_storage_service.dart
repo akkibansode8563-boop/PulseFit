@@ -1,33 +1,86 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persists the user's own OpenAI API key on-device.
-/// NOTE: shared_preferences is NOT encrypted storage. For production,
-/// swap this for `flutter_secure_storage` (Keychain/Keystore-backed) —
-/// this class's public API is written so that swap only touches this file.
-abstract class ApiKeyStorageService {
-  static const _key = 'user_openai_api_key';
+enum AiVisionProvider { openai, gemini, none }
 
-  static Future<void> saveKey(String key) async {
+class ConfiguredAiKey {
+  final String key;
+  final AiVisionProvider provider;
+
+  const ConfiguredAiKey({required this.key, required this.provider});
+}
+
+abstract class ApiKeyStorageService {
+  static const _openAiKey = 'user_openai_api_key';
+  static const _geminiKey = 'user_gemini_api_key';
+
+  static Future<void> saveOpenAiKey(String key) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_key, key.trim());
+      await prefs.setString(_openAiKey, key.trim());
+    } catch (_) {}
+  }
+
+  static Future<void> saveGeminiKey(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_geminiKey, key.trim());
     } catch (_) {}
   }
 
   static Future<String?> getKey() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final value = prefs.getString(_key);
+      final value = prefs.getString(_openAiKey);
       return (value == null || value.isEmpty) ? null : value;
     } catch (_) {
       return null;
     }
   }
 
-  static Future<void> clearKey() async {
+  static Future<String?> getGeminiKey() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_key);
+      final value = prefs.getString(_geminiKey);
+      return (value == null || value.isEmpty) ? null : value;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<ConfiguredAiKey> getEffectiveProviderKey() async {
+    // 1. Check Gemini key
+    final gemini = await getGeminiKey();
+    if (gemini != null && gemini.startsWith('AIza')) {
+      return ConfiguredAiKey(key: gemini, provider: AiVisionProvider.gemini);
+    }
+
+    // 2. Check OpenAI key
+    final openAi = await getKey();
+    if (openAi != null && openAi.startsWith('sk-')) {
+      return ConfiguredAiKey(key: openAi, provider: AiVisionProvider.openai);
+    }
+
+    return const ConfiguredAiKey(key: '', provider: AiVisionProvider.none);
+  }
+
+  static Future<void> clearKeys() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_openAiKey);
+      await prefs.remove(_geminiKey);
     } catch (_) {}
+  }
+
+  // Backward compatibility alias
+  static Future<void> saveKey(String key) async {
+    if (key.trim().startsWith('AIza')) {
+      await saveGeminiKey(key);
+    } else {
+      await saveOpenAiKey(key);
+    }
+  }
+
+  static Future<void> clearKey() async {
+    await clearKeys();
   }
 }

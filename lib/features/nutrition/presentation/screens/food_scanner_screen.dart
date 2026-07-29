@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../../core/services/ai_service.dart';
+import '../../../../core/services/ai_vision_factory.dart';
 import '../../../../core/services/image_quality_service.dart';
 import '../../../../core/services/network_checker_service.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -175,7 +176,7 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
     });
 
     // ── STAGE 3 & 4: Cloud AI Vision Analysis with Explicit Error Surface ──
-    final aiService = ref.read(aiServiceProvider);
+    final aiService = await AiVisionFactory.getService();
     try {
       final result = await aiService.analyzeFoodImage(imagePath: imagePath);
 

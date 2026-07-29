@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/services/ai_service.dart';
+import '../../../../core/services/ai_vision_factory.dart';
 import '../../../../core/services/openai_service_impl.dart';
 import '../../data/repositories/nutrition_repository_impl.dart';
 import '../../domain/entities/meal_record.dart';
 import '../../domain/repositories/i_nutrition_repository.dart';
 
 final aiServiceProvider = Provider<IAIService>((ref) {
+  // Synchronous fallback service; dynamic methods fetch effective service via AiVisionFactory
   return OpenAIServiceImpl();
 });
 
@@ -26,12 +28,12 @@ class NutritionNotifier extends AsyncNotifier<List<MealRecord>> {
   }
 
   Future<MealAnalysisResult> analyzeMealDescription(String text) async {
-    final aiService = ref.read(aiServiceProvider);
+    final aiService = await AiVisionFactory.getService();
     return await aiService.analyzeMealText(textDescription: text);
   }
 
   Future<void> analyzeAndAddMealText(String text) async {
-    final aiService = ref.read(aiServiceProvider);
+    final aiService = await AiVisionFactory.getService();
     final res = await aiService.analyzeMealText(textDescription: text);
     await saveAnalyzedMeal(res);
   }
