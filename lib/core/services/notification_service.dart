@@ -24,21 +24,28 @@ class NotificationService {
 
     await _plugin.initialize(initSettings);
 
-    // Create high-importance notification channel (required for Android 8+)
-    const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      _channelId,
-      _channelName,
-      description: _channelDesc,
-      importance: Importance.max,
-      playSound: true,
-      enableVibration: true,
-      showBadge: true,
-    );
-
-    await _plugin
+    final androidImplementation = _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    if (androidImplementation != null) {
+      // Create high-importance notification channel (required for Android 8+)
+      const AndroidNotificationChannel channel = AndroidNotificationChannel(
+        _channelId,
+        _channelName,
+        description: _channelDesc,
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        showBadge: true,
+      );
+
+      await androidImplementation.createNotificationChannel(channel);
+
+      // Explicitly request Android 13+ (API 33+) POST_NOTIFICATIONS runtime permission
+      await androidImplementation.requestNotificationsPermission();
+      await androidImplementation.requestExactAlarmsPermission();
+    }
   }
 
   /// Push an immediate lockscreen notification (works when screen is OFF / app closed)

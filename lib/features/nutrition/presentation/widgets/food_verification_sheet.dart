@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/services/ai_service.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../domain/entities/meal_record.dart';
 import 'developer_debug_sheet.dart';
 
@@ -877,10 +876,10 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
         margin: const EdgeInsets.only(right: 8),
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0x1A10B981) : const Color(0xFF121824),
+          color: isSelected ? const Color(0x3310B981) : const Color(0x0DFFFFFF),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? const Color(0xFF10B981) : const Color(0xFF1F2937),
+            color: isSelected ? const Color(0xFF10B981) : const Color(0x1AFFFFFF),
             width: isSelected ? 1.5 : 1.0,
           ),
         ),

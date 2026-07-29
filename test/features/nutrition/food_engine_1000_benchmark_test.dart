@@ -1,7 +1,5 @@
-@Timeout(Duration(minutes: 15))
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_health_manager/core/services/openai_service_impl.dart';
-import 'package:ai_health_manager/features/nutrition/data/datasources/regional_food_database.dart';
 
 void main() {
   group('AI Food Engine 1000 Foods Benchmark Validation Suite', () {

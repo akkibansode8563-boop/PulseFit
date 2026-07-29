@@ -198,7 +198,7 @@ class RemindersScreen extends ConsumerWidget {
               Switch(
                 value: isEnabled,
                 onChanged: onToggle,
-                activeColor: AppColors.primaryDark,
+                activeThumbColor: AppColors.primaryDark,
               ),
             ],
           ),
