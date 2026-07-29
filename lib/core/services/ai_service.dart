@@ -6,12 +6,16 @@ class AiAnalysisException implements Exception {
   final String? technicalDetails;
   final bool isNetworkError;
   final bool isApiKeyError;
+  final bool isQuotaError;
+  final bool isServerError;
 
   const AiAnalysisException(
     this.message, {
     this.technicalDetails,
     this.isNetworkError = false,
     this.isApiKeyError = false,
+    this.isQuotaError = false,
+    this.isServerError = false,
   });
 
   @override

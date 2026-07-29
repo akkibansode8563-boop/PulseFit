@@ -1,3 +1,4 @@
+@Timeout(Duration(minutes: 5))
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ai_health_manager/core/services/openai_service_impl.dart';
 

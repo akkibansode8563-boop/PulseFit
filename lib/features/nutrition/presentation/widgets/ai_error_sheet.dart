@@ -51,7 +51,11 @@ class AiErrorSheet extends StatelessWidget {
                       ? Icons.wifi_off_rounded
                       : exception.isApiKeyError
                           ? Icons.key_off_rounded
-                          : Icons.center_focus_weak_rounded,
+                          : exception.isQuotaError
+                              ? Icons.hourglass_bottom_rounded
+                              : exception.isServerError
+                                  ? Icons.cloud_off_rounded
+                                  : Icons.center_focus_weak_rounded,
                   color: Colors.red.shade700,
                   size: 28,
                 ),
@@ -74,7 +78,11 @@ class AiErrorSheet extends StatelessWidget {
                           ? 'Network Connectivity Issue'
                           : exception.isApiKeyError
                               ? 'API Configuration Issue'
-                              : 'Low Vision Recognition Quality',
+                              : exception.isQuotaError
+                                  ? 'OpenAI Quota Exceeded'
+                                  : exception.isServerError
+                                      ? 'OpenAI Service Unavailable'
+                                      : 'Low Vision Recognition Quality',
                       style: GoogleFonts.sora(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,

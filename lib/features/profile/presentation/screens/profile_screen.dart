@@ -6,6 +6,7 @@ import '../../../../core/widgets/state_views.dart';
 import '../../../profile/domain/entities/health_enums.dart';
 import '../../../profile/domain/entities/user_profile.dart';
 import '../../../onboarding/presentation/screens/onboarding_screen.dart';
+import '../../../settings/presentation/screens/api_key_settings_screen.dart';
 import '../providers/profile_provider.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -183,7 +184,24 @@ class ProfileScreen extends ConsumerWidget {
             ),
             child: Text(profile.aiExplanation!, style: GoogleFonts.outfit(fontSize: 13, color: AppColors.lightTextSecondary, height: 1.5, fontWeight: FontWeight.w500)),
           ),
+          const SizedBox(height: 16),
         ],
+
+        // Settings Entry
+        Card(
+          color: Colors.white,
+          margin: const EdgeInsets.only(bottom: 10),
+          child: ListTile(
+            leading: const CircleAvatar(backgroundColor: Color(0x1A10B981), child: Icon(Icons.vpn_key_rounded, color: Color(0xFF10B981))),
+            title: Text('AI Vision Key Settings', style: GoogleFonts.outfit(fontWeight: FontWeight.w600, color: AppColors.lightTextPrimary)),
+            subtitle: Text('Configure your own OpenAI API key', style: GoogleFonts.outfit(fontSize: 12, color: AppColors.lightTextSecondary)),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ApiKeySettingsScreen()),
+            ),
+          ),
+        ),
       ],
     );
   }
