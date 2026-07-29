@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../error/error_presenter.dart';
 import '../services/app_update_service.dart';
 import '../theme/app_colors.dart';
 
@@ -43,7 +44,7 @@ class _UpdateNotificationDialogState extends State<UpdateNotificationDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open download link: $e')),
+          SnackBar(content: Text('Could not open download link: ${ErrorPresenter.userMessage(e)}')),
         );
       }
     }

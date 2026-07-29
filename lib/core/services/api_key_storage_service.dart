@@ -8,18 +8,26 @@ abstract class ApiKeyStorageService {
   static const _key = 'user_openai_api_key';
 
   static Future<void> saveKey(String key) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, key.trim());
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_key, key.trim());
+    } catch (_) {}
   }
 
   static Future<String?> getKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    final value = prefs.getString(_key);
-    return (value == null || value.isEmpty) ? null : value;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final value = prefs.getString(_key);
+      return (value == null || value.isEmpty) ? null : value;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<void> clearKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key);
+    } catch (_) {}
   }
 }

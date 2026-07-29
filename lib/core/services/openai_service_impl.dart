@@ -4,16 +4,22 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import '../../features/nutrition/data/datasources/regional_food_database.dart';
+import '../../features/nutrition/data/mappers/food_analysis_mapper.dart';
 import '../../features/nutrition/domain/entities/maharashtrian_meals.dart';
 import '../../features/nutrition/domain/entities/meal_record.dart';
 import 'ai_service.dart';
 import 'api_key_storage_service.dart';
 import 'network_checker_service.dart';
+import 'vision_http_client.dart';
 
 class OpenAIServiceImpl implements IAIService {
   final String? apiKey;
+  final VisionHttpClient httpClient;
 
-  OpenAIServiceImpl({this.apiKey});
+  OpenAIServiceImpl({
+    this.apiKey,
+    VisionHttpClient? httpClient,
+  }) : httpClient = httpClient ?? DefaultVisionHttpClient();
 
   Future<String> _getEffectiveKey() async {
     if (apiKey != null && apiKey!.isNotEmpty) return apiKey!;
@@ -94,13 +100,12 @@ class OpenAIServiceImpl implements IAIService {
     http.Response response;
 
     try {
-      response = await http
-          .post(
-            Uri.parse('https://api.openai.com/v1/chat/completions'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $key',
-            },
+      response = await httpClient.post(
+        Uri.parse('https://api.openai.com/v1/chat/completions'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $key',
+        },
             body: jsonEncode({
               'model': modelName,
               'messages': [
@@ -158,7 +163,7 @@ class OpenAIServiceImpl implements IAIService {
       );
     }
 
-    // ── STAGE 6: JSON Parsing & Entity Extraction ──
+    // ── STAGE 6: JSON Parsing & Entity Extraction via FoodAnalysisMapper ──
     Map<String, dynamic> jsonResult;
     String rawContent = '';
     try {
@@ -172,98 +177,14 @@ class OpenAIServiceImpl implements IAIService {
       );
     }
 
-    final dishName = (jsonResult['dish'] as String?)?.trim() ?? '';
-    if (dishName.isEmpty ||
-        dishName.toLowerCase().contains('placeholder') ||
-        dishName.toLowerCase().contains('unknown') ||
-        dishName.toLowerCase().contains('healthy dish')) {
-      throw const AiAnalysisException(
-        'AI could not analyse the image with high confidence. Please ensure good lighting and clear food view.',
-      );
-    }
-
-    final rawConfidence = (jsonResult['confidence'] as num?)?.toDouble() ?? 85.0;
-    final double confidenceScore = (rawConfidence > 1.0 ? rawConfidence / 100.0 : rawConfidence).clamp(0.0, 1.0);
-
-    final cuisine = (jsonResult['cuisine'] as String?) ?? 'Indian';
-    final portion = (jsonResult['portion'] as String?) ?? '1 Serving';
-    final int estimatedWeight = (jsonResult['estimatedWeight'] as num?)?.toInt() ?? 180;
-
-    final rawIngredients = jsonResult['ingredients'] as List? ?? [];
-    final List<String> ingredients = rawIngredients.map((e) => e.toString()).toList();
-
-    final rawAlternatives = jsonResult['alternatives'] as List? ?? [];
-    final List<String> alternatives = rawAlternatives.map((e) => e.toString()).toList();
-
-    final nutritionMap = jsonResult['nutrition'] as Map<String, dynamic>? ?? {};
-
-    double calories = (nutritionMap['calories'] as num?)?.toDouble() ?? 200.0;
-    double protein = (nutritionMap['protein'] as num?)?.toDouble() ?? 5.0;
-    double carbs = (nutritionMap['carbs'] as num?)?.toDouble() ?? 30.0;
-    double fat = (nutritionMap['fat'] as num?)?.toDouble() ?? 6.0;
-    double fiber = (nutritionMap['fiber'] as num?)?.toDouble() ?? 3.0;
-    double sugar = (nutritionMap['sugar'] as num?)?.toDouble() ?? 2.0;
-
-    // ── STAGE 7: RegionalFoodDatabase Calibrated Cross-Check ──
-    String nutritionSource = 'OpenAI Vision Model';
-    bool fallbackUsed = false;
-
-    final RegionalFoodItem? matched = RegionalFoodDatabase.findClosestMatch(dishName);
-    if (matched != null) {
-      nutritionSource = 'RegionalFoodDatabase (${matched.nameRegional})';
-      fallbackUsed = true;
-      final double ratio = estimatedWeight / 100.0;
-      calories = (matched.caloriesPer100g * ratio);
-      protein = (matched.proteinPer100g * ratio);
-      carbs = (matched.carbsPer100g * ratio);
-      fat = (matched.fatPer100g * ratio);
-      fiber = (matched.fiberPer100g * ratio);
-      sugar = (matched.sugarPer100g * ratio);
-    }
-
+    netStopwatch.stop();
     stopwatch.stop();
 
-    // ── STAGE 8: Build Telemetry & Return Result ──
-    final telemetry = AiAnalysisTelemetry(
-      apiKeyLoaded: true,
-      isOnline: true,
-      imageResolution: '1080p (JPEG 85%)',
-      imageSizeBytes: fileSizeBytes,
-      visionModel: modelName,
-      promptSent: systemPrompt,
+    return FoodAnalysisMapper.fromOpenAiJson(
+      jsonResult,
       rawJsonResponse: rawContent,
-      confidenceScore: confidenceScore,
-      nutritionSource: nutritionSource,
-      fallbackUsed: fallbackUsed,
       totalLatencyMs: stopwatch.elapsedMilliseconds,
       networkLatencyMs: netStopwatch.elapsedMilliseconds,
-    );
-
-    return MealAnalysisResult(
-      mealTitle: matched?.nameEn ?? dishName,
-      suggestedType: _suggestMealType(cuisine),
-      items: [
-        MealItem(
-          name: matched?.nameEn ?? dishName,
-          weightGrams: estimatedWeight,
-          calories: calories.round(),
-          proteinGrams: protein.round(),
-          carbsGrams: carbs.round(),
-          fatGrams: fat.round(),
-        ),
-      ],
-      confidenceScore: confidenceScore,
-      aiAdvice: matched != null
-          ? '${matched.nameEn} (${matched.nameRegional}) — ${matched.descriptionEn}'
-          : '$dishName ($cuisine cuisine) — $portion (${estimatedWeight}g)',
-      cuisine: cuisine,
-      ingredients: ingredients,
-      portion: portion,
-      estimatedWeightGrams: estimatedWeight,
-      totalFiberGrams: fiber.round(),
-      totalSugarGrams: sugar.round(),
-      alternatives: alternatives,
-      telemetry: telemetry,
     );
   }
 
@@ -277,27 +198,25 @@ class OpenAIServiceImpl implements IAIService {
 
     if (isOnline && key.startsWith('sk-')) {
       try {
-        final response = await http
-            .post(
-              Uri.parse('https://api.openai.com/v1/chat/completions'),
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer $key',
-              },
-              body: jsonEncode({
-                'model': 'gpt-4o-mini',
-                'messages': [
-                  {
-                    'role': 'user',
-                    'content':
-                        'You are an expert nutritionist. Analyze this meal description: "$textDescription". Return strictly JSON matching keys: dish, cuisine, estimatedWeight, calories, protein, carbs, fat, fiber, sugar, confidenceScore, aiAdvice.'
-                  }
-                ],
-                'response_format': {'type': 'json_object'},
-                'max_tokens': 350,
-              }),
-            )
-            .timeout(const Duration(seconds: 8));
+        final response = await httpClient.post(
+          Uri.parse('https://api.openai.com/v1/chat/completions'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $key',
+          },
+          body: jsonEncode({
+            'model': 'gpt-4o-mini',
+            'messages': [
+              {
+                'role': 'user',
+                'content':
+                    'You are an expert nutritionist. Analyze this meal description: "$textDescription". Return strictly JSON matching keys: dish, cuisine, estimatedWeight, calories, protein, carbs, fat, fiber, sugar, confidenceScore, aiAdvice.'
+              }
+            ],
+            'response_format': {'type': 'json_object'},
+            'max_tokens': 350,
+          }),
+        );
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);

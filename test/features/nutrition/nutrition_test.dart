@@ -4,6 +4,7 @@ import 'package:ai_health_manager/features/nutrition/domain/entities/meal_record
 import 'package:ai_health_manager/features/nutrition/data/repositories/nutrition_repository_impl.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('Nutrition Feature Tests', () {
     final aiService = OpenAIServiceImpl();
     final repo = NutritionRepositoryImpl();
