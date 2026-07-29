@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/services/ai_service.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../domain/entities/meal_record.dart';
+import 'developer_debug_sheet.dart';
 
 class FoodVerificationSheet extends StatefulWidget {
   final MealAnalysisResult initialAnalysis;
@@ -29,14 +30,14 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
   late TextEditingController _fiberController;
   late TextEditingController _sugarController;
   late MealType _selectedMealType;
-  double _portionMultiplier = 1.0; // 0.5x, 1.0x, 1.5x, 2.0x
+  double _portionMultiplier = 1.0;
 
   int _baseCalories = 0;
   int _baseProtein = 0;
   int _baseCarbs = 0;
   int _baseFat = 0;
-  final int _baseFiber = 8;
-  final int _baseSugar = 3;
+  int _baseFiber = 4;
+  int _baseSugar = 2;
 
   @override
   void initState() {
@@ -44,10 +45,12 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
     final analysis = widget.initialAnalysis;
     _titleController = TextEditingController(text: analysis.mealTitle);
 
-    _baseCalories = analysis.items.fold(0, (sum, i) => sum + i.calories);
-    _baseProtein = analysis.items.fold(0, (sum, i) => sum + i.proteinGrams);
-    _baseCarbs = analysis.items.fold(0, (sum, i) => sum + i.carbsGrams);
-    _baseFat = analysis.items.fold(0, (sum, i) => sum + i.fatGrams);
+    _baseCalories = analysis.totalCalories;
+    _baseProtein = analysis.totalProtein;
+    _baseCarbs = analysis.totalCarbs;
+    _baseFat = analysis.totalFat;
+    _baseFiber = analysis.totalFiberGrams;
+    _baseSugar = analysis.totalSugarGrams;
 
     _caloriesController = TextEditingController(text: _baseCalories.toString());
     _proteinController = TextEditingController(text: _baseProtein.toString());
@@ -70,6 +73,12 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
     });
   }
 
+  void _selectAlternative(String altName) {
+    setState(() {
+      _titleController.text = altName;
+    });
+  }
+
   @override
   void dispose() {
     _titleController.dispose();
@@ -84,10 +93,11 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final score = widget.initialAnalysis.confidenceScore;
+    final analysis = widget.initialAnalysis;
+    final score = analysis.confidenceScore;
     final confidencePct = (score * 100).toInt();
 
-    // Tiered Confidence Strategy
+    // ── 4-Tier Confidence Validation Tiers ──
     final Color badgeBg;
     final Color badgeText;
     final String tierLabel;
@@ -95,19 +105,19 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
     if (score >= 0.95) {
       badgeBg = AppColors.primary.withValues(alpha: 0.15);
       badgeText = AppColors.primaryDark;
-      tierLabel = '95%+ High Match';
-    } else if (score >= 0.80) {
+      tierLabel = '$confidencePct% High Match';
+    } else if (score >= 0.90) {
       badgeBg = Colors.blue.shade50;
       badgeText = Colors.blue.shade800;
       tierLabel = '$confidencePct% Match';
-    } else if (score >= 0.60) {
+    } else if (score >= 0.75) {
       badgeBg = Colors.orange.shade50;
       badgeText = Colors.orange.shade800;
-      tierLabel = '$confidencePct% Review Suggested';
+      tierLabel = '$confidencePct% Suggested Match';
     } else {
       badgeBg = Colors.red.shade50;
       badgeText = Colors.red.shade800;
-      tierLabel = 'Low Confidence ($confidencePct%)';
+      tierLabel = 'Low Match ($confidencePct%)';
     }
 
     return Container(
@@ -126,35 +136,76 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Handle bar
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
+            // Handle bar & Telemetry Icon
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                 ),
-              ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    icon: const Icon(Icons.bug_report_rounded, color: AppColors.primaryDark),
+                    tooltip: 'Developer Debug Telemetry',
+                    onPressed: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (_) => DeveloperDebugSheet(
+                          telemetry: analysis.telemetry,
+                          analysis: analysis,
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
 
-            // Header & Tiered Confidence Badge
+            // Header & Tiered Badge
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Cloud AI Scan Result 🍽️',
-                      style: GoogleFonts.sora(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                    ),
-                    Text(
-                      'Verify dish name, portion & macros',
-                      style: GoogleFonts.sora(fontSize: 12, color: AppColors.textSecondary),
-                    ),
-                  ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Cloud AI Scan Result 🍽️',
+                            style: GoogleFonts.sora(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              analysis.cuisine,
+                              style: GoogleFonts.sora(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryDark),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'Verify dish name, portion & macros',
+                        style: GoogleFonts.sora(fontSize: 12, color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -176,7 +227,7 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
                 ),
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 16),
 
             // Food Dish Name (Editable)
             Text(
@@ -187,7 +238,7 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
             TextField(
               controller: _titleController,
               decoration: InputDecoration(
-                hintText: 'e.g. Kanda Poha',
+                hintText: 'e.g. Batata Bhaji',
                 prefixIcon: const Icon(Icons.restaurant_menu_rounded, color: AppColors.primaryDark),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
                 filled: true,
@@ -195,7 +246,70 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
               ),
               style: GoogleFonts.sora(fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+
+            // ── Tier 75-89%: Dish Alternatives Chips ──
+            if (analysis.alternatives.isNotEmpty) ...[
+              Text(
+                'Top Dish Alternatives (Tap to select):',
+                style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: analysis.alternatives.map((alt) {
+                  final selected = _titleController.text.toLowerCase() == alt.toLowerCase();
+                  return ActionChip(
+                    avatar: Icon(
+                      selected ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
+                      size: 14,
+                      color: selected ? Colors.white : AppColors.primaryDark,
+                    ),
+                    label: Text(
+                      alt,
+                      style: GoogleFonts.sora(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: selected ? Colors.white : AppColors.primaryDark,
+                      ),
+                    ),
+                    backgroundColor: selected ? AppColors.primaryDark : AppColors.background,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    onPressed: () => _selectAlternative(alt),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 14),
+            ],
+
+            // Ingredients List
+            if (analysis.ingredients.isNotEmpty) ...[
+              Text(
+                'Detected Ingredients:',
+                style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: analysis.ingredients.map((ing) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.divider),
+                    ),
+                    child: Text(
+                      ing,
+                      style: GoogleFonts.sora(fontSize: 10.5, color: Colors.black87),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 14),
+            ],
 
             // Portion Size Selector (0.5x, 1.0x, 1.5x, 2.0x)
             Text(
@@ -299,10 +413,10 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
                 ),
                 onPressed: () {
                   final mealName = _titleController.text.trim();
-                  final calories = int.tryParse(_caloriesController.text.trim()) ?? 250;
-                  final protein = int.tryParse(_proteinController.text.trim()) ?? 8;
-                  final carbs = int.tryParse(_carbsController.text.trim()) ?? 35;
-                  final fat = int.tryParse(_fatController.text.trim()) ?? 7;
+                  final calories = int.tryParse(_caloriesController.text.trim()) ?? 200;
+                  final protein = int.tryParse(_proteinController.text.trim()) ?? 5;
+                  final carbs = int.tryParse(_carbsController.text.trim()) ?? 30;
+                  final fat = int.tryParse(_fatController.text.trim()) ?? 6;
 
                   final finalRecord = MealRecord(
                     id: 'meal_${DateTime.now().millisecondsSinceEpoch}',
@@ -311,7 +425,7 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
                     items: [
                       MealItem(
                         name: mealName.isNotEmpty ? mealName : 'Scanned Dish',
-                        weightGrams: (200 * _portionMultiplier).round(),
+                        weightGrams: (analysis.estimatedWeightGrams * _portionMultiplier).round(),
                         calories: calories,
                         proteinGrams: protein,
                         carbsGrams: carbs,

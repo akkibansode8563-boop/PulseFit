@@ -213,6 +213,57 @@ abstract class RegionalFoodDatabase {
     ),
     RegionalFoodItem(
       id: 'm_12',
+      nameEn: 'Upma',
+      nameRegional: 'उप्पीट',
+      caloriesPer100g: 135,
+      proteinPer100g: 4,
+      carbsPer100g: 22,
+      fatPer100g: 3,
+      fiberPer100g: 2,
+      sugarPer100g: 1,
+      typicalServingGrams: 150,
+      category: 'breakfast',
+      region: IndianRegion.maharashtra,
+      suitableFor: FoodPreference.vegetarian,
+      descriptionEn: 'Roasted semolina cooked with mustard seeds, curry leaves, green chilies & roasted peanuts.',
+      descriptionRegional: 'रवा, फोडणी आणि मूंगफळी घालून बनवलेले खमंग उप्पीट.',
+    ),
+    RegionalFoodItem(
+      id: 'm_13',
+      nameEn: 'Ukadpendi',
+      nameRegional: 'उकडपेंडी',
+      caloriesPer100g: 145,
+      proteinPer100g: 4,
+      carbsPer100g: 22,
+      fatPer100g: 4,
+      fiberPer100g: 3,
+      sugarPer100g: 1,
+      typicalServingGrams: 150,
+      category: 'breakfast',
+      region: IndianRegion.maharashtra,
+      suitableFor: FoodPreference.vegetarian,
+      descriptionEn: 'Traditional Vidarbha spiced buttermilk and wheat flour porridge cooked with onions & mustard.',
+      descriptionRegional: 'विदर्भातील पारंपरिक मसालेदार ताक आणि गव्हाच्या पिठाची उकडपेंडी.',
+    ),
+    RegionalFoodItem(
+      id: 'm_14',
+      nameEn: 'Sheera',
+      nameRegional: 'शिरा',
+      caloriesPer100g: 220,
+      proteinPer100g: 4,
+      carbsPer100g: 36,
+      fatPer100g: 7,
+      fiberPer100g: 2,
+      sugarPer100g: 15,
+      typicalServingGrams: 150,
+      category: 'breakfast',
+      region: IndianRegion.maharashtra,
+      suitableFor: FoodPreference.vegetarian,
+      descriptionEn: 'Sweet semolina pudding roasted in pure ghee, flavored with cardamom, saffron & cashews.',
+      descriptionRegional: 'साजूक तुपातील सुवासिक आणि खमंग रव्याचा शिरा.',
+    ),
+    RegionalFoodItem(
+      id: 'm_15',
       nameEn: 'Pav Bhaji',
       nameRegional: 'पाव भाजी',
       caloriesPer100g: 135,
@@ -340,10 +391,10 @@ abstract class RegionalFoodDatabase {
       id: 'g_1',
       nameEn: 'Grilled Chicken Breast with Rice',
       nameRegional: 'ग्रिल्ड चिकन आणि भात',
-      caloriesPer100g: 140,
-      proteinPer100g: 16,
-      carbsPer100g: 14,
-      fatPer100g: 2,
+      caloriesPer100g: 150,
+      proteinPer100g: 18,
+      carbsPer100g: 16,
+      fatPer100g: 3,
       fiberPer100g: 1,
       sugarPer100g: 0,
       typicalServingGrams: 300,
@@ -381,6 +432,17 @@ abstract class RegionalFoodDatabase {
           lower.contains(item.nameRegional) ||
           item.nameEn.toLowerCase().contains(lower)) {
         return item;
+      }
+    }
+
+    final words = lower.split(RegExp(r'\s+'));
+    for (final word in words) {
+      if (word.length >= 3) {
+        for (final item in items) {
+          if (item.nameEn.toLowerCase().contains(word)) {
+            return item;
+          }
+        }
       }
     }
     return null;

@@ -5,11 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../../../../core/services/ai_service.dart';
 import '../../../../core/services/image_quality_service.dart';
 import '../../../../core/services/network_checker_service.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/smile_celebration_overlay.dart';
 import '../providers/nutrition_provider.dart';
+import '../widgets/ai_error_sheet.dart';
+import '../widgets/developer_debug_sheet.dart';
 import '../widgets/food_verification_sheet.dart';
 import '../widgets/internet_required_sheet.dart';
 import '../widgets/voice_logging_sheet.dart';
@@ -29,6 +32,7 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
 
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
+  MealAnalysisResult? _lastAnalysis;
   bool _isAnalyzing = false;
 
   @override
@@ -128,7 +132,7 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
   }
 
   Future<void> _processImage(String imagePath) async {
-    // ── STAGE 1: Network Check before Camera / AI Analysis ──
+    // ── STAGE 1: Network Check ──
     final bool isOnline = await NetworkCheckerService.isConnected();
     if (!isOnline) {
       if (!mounted) return;
@@ -152,10 +156,14 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
     final qualityResult = await ImageQualityService.validateImage(imagePath);
     if (!qualityResult.isValid) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('⚠️ Quality Alert: ${qualityResult.message}'),
-          backgroundColor: Colors.orange.shade800,
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => AiErrorSheet(
+          exception: AiAnalysisException('Image Quality Issue: ${qualityResult.message}'),
+          onRetry: () => _pickImage(ImageSource.camera),
+          onSelectGallery: () => _pickImage(ImageSource.gallery),
         ),
       );
       return;
@@ -166,43 +174,95 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
       _isAnalyzing = true;
     });
 
-    // ── STAGE 3 & 4: Cloud AI Vision Analysis ──
+    // ── STAGE 3 & 4: Cloud AI Vision Analysis with Explicit Error Surface ──
     final aiService = ref.read(aiServiceProvider);
-    final result = await aiService.analyzeFoodImage(imagePath: imagePath);
+    try {
+      final result = await aiService.analyzeFoodImage(imagePath: imagePath);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _isAnalyzing = false;
-    });
+      setState(() {
+        _isAnalyzing = false;
+        _lastAnalysis = result;
+      });
 
-    // ── STAGE 5: Show Verification Sheet ──
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => FoodVerificationSheet(
-        initialAnalysis: result,
-        onScanAgain: () {
-          setState(() {
-            _selectedImage = null;
-          });
-        },
-        onConfirmed: (finalMeal) async {
-          final repo = ref.read(nutritionRepositoryProvider);
-          await repo.logMeal(finalMeal);
-          ref.invalidate(nutritionProvider);
+      // ── STEP 7: Confidence Validation Tiers ──
+      if (result.confidenceScore < 0.75) {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (ctx) => AiErrorSheet(
+            exception: AiAnalysisException(
+              'Low AI Confidence (${(result.confidenceScore * 100).toInt()}%). Unable to identify dish reliably. Please retake photo with better lighting.',
+            ),
+            onRetry: () => _pickImage(ImageSource.camera),
+            onSelectGallery: () => _pickImage(ImageSource.gallery),
+          ),
+        );
+        return;
+      }
 
-          if (mounted) {
-            SmileCelebrationOverlay.show(
-              context,
-              message: 'Log Saved: ${finalMeal.title} (${finalMeal.totalCalories} kcal)! 😃',
-              emoji: '😋',
-            );
-          }
-        },
-      ),
-    );
+      // ── Show Verification Sheet with Tiered Confidence & Alternatives ──
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => FoodVerificationSheet(
+          initialAnalysis: result,
+          onScanAgain: () {
+            setState(() {
+              _selectedImage = null;
+            });
+          },
+          onConfirmed: (finalMeal) async {
+            final repo = ref.read(nutritionRepositoryProvider);
+            await repo.logMeal(finalMeal);
+            ref.invalidate(nutritionProvider);
+
+            if (mounted) {
+              SmileCelebrationOverlay.show(
+                context,
+                message: 'Log Saved: ${finalMeal.title} (${finalMeal.totalCalories} kcal)! 😃',
+                emoji: '😋',
+              );
+            }
+          },
+        ),
+      );
+    } on AiAnalysisException catch (ex) {
+      if (!mounted) return;
+      setState(() {
+        _isAnalyzing = false;
+      });
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => AiErrorSheet(
+          exception: ex,
+          onRetry: () => _processImage(imagePath),
+          onSelectGallery: () => _pickImage(ImageSource.gallery),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isAnalyzing = false;
+      });
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => AiErrorSheet(
+          exception: AiAnalysisException('Unexpected scanner error: $e'),
+          onRetry: () => _processImage(imagePath),
+          onSelectGallery: () => _pickImage(ImageSource.gallery),
+        ),
+      );
+    }
   }
 
   @override
@@ -220,10 +280,28 @@ class _FoodScannerScreenState extends ConsumerState<FoodScannerScreen> {
           'AI Food & Macro Scanner',
           style: GoogleFonts.sora(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
         ),
+        actions: [
+          if (_lastAnalysis != null)
+            IconButton(
+              icon: const Icon(Icons.bug_report_rounded, color: AppColors.primary),
+              tooltip: 'Developer Debug Panel',
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => DeveloperDebugSheet(
+                    telemetry: _lastAnalysis?.telemetry,
+                    analysis: _lastAnalysis!,
+                  ),
+                );
+              },
+            ),
+        ],
       ),
       body: Stack(
         children: [
-          // ── Live Camera Preview / Captured Photo Viewfinder ──
+          // Live Camera Preview / Captured Photo Viewfinder
           Positioned.fill(
             child: _selectedImage != null
                 ? Image.file(File(_selectedImage!.path), fit: BoxFit.cover)
