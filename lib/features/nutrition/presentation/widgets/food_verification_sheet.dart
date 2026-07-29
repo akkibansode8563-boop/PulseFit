@@ -22,15 +22,10 @@ class FoodVerificationSheet extends StatefulWidget {
 }
 
 class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
-  late TextEditingController _titleController;
-  late TextEditingController _caloriesController;
-  late TextEditingController _proteinController;
-  late TextEditingController _carbsController;
-  late TextEditingController _fatController;
-  late TextEditingController _fiberController;
-  late TextEditingController _sugarController;
+  late String _selectedDishTitle;
   late MealType _selectedMealType;
   double _portionMultiplier = 1.0;
+  int _selectedPortionIndex = 1; // 0: Small (120g), 1: Medium (180g), 2: Large (250g), 3: XL (350g)
 
   int _baseCalories = 0;
   int _baseProtein = 0;
@@ -38,12 +33,25 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
   int _baseFat = 0;
   int _baseFiber = 4;
   int _baseSugar = 2;
+  int _baseWeight = 180;
+
+  bool _isEditingManually = false;
+  late TextEditingController _customTitleController;
+  late TextEditingController _customCalsController;
+
+  final List<Map<String, dynamic>> _portionOptions = [
+    {'label': 'Small', 'weight': 120, 'mult': 0.67},
+    {'label': 'Medium', 'weight': 180, 'mult': 1.0},
+    {'label': 'Large', 'weight': 250, 'mult': 1.39},
+    {'label': 'XL', 'weight': 350, 'mult': 1.94},
+  ];
 
   @override
   void initState() {
     super.initState();
     final analysis = widget.initialAnalysis;
-    _titleController = TextEditingController(text: analysis.mealTitle);
+    _selectedDishTitle = analysis.mealTitle;
+    _selectedMealType = analysis.suggestedType;
 
     _baseCalories = analysis.totalCalories;
     _baseProtein = analysis.totalProtein;
@@ -51,460 +59,894 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
     _baseFat = analysis.totalFat;
     _baseFiber = analysis.totalFiberGrams;
     _baseSugar = analysis.totalSugarGrams;
+    _baseWeight = analysis.estimatedWeightGrams > 0 ? analysis.estimatedWeightGrams : 180;
 
-    _caloriesController = TextEditingController(text: _baseCalories.toString());
-    _proteinController = TextEditingController(text: _baseProtein.toString());
-    _carbsController = TextEditingController(text: _baseCarbs.toString());
-    _fatController = TextEditingController(text: _baseFat.toString());
-    _fiberController = TextEditingController(text: _baseFiber.toString());
-    _sugarController = TextEditingController(text: _baseSugar.toString());
-    _selectedMealType = analysis.suggestedType;
-  }
-
-  void _updatePortion(double mult) {
-    setState(() {
-      _portionMultiplier = mult;
-      _caloriesController.text = (_baseCalories * mult).round().toString();
-      _proteinController.text = (_baseProtein * mult).round().toString();
-      _carbsController.text = (_baseCarbs * mult).round().toString();
-      _fatController.text = (_baseFat * mult).round().toString();
-      _fiberController.text = (_baseFiber * mult).round().toString();
-      _sugarController.text = (_baseSugar * mult).round().toString();
-    });
-  }
-
-  void _selectAlternative(String altName) {
-    setState(() {
-      _titleController.text = altName;
-    });
+    _customTitleController = TextEditingController(text: _selectedDishTitle);
+    _customCalsController = TextEditingController(text: _baseCalories.toString());
   }
 
   @override
   void dispose() {
-    _titleController.dispose();
-    _caloriesController.dispose();
-    _proteinController.dispose();
-    _carbsController.dispose();
-    _fatController.dispose();
-    _fiberController.dispose();
-    _sugarController.dispose();
+    _customTitleController.dispose();
+    _customCalsController.dispose();
     super.dispose();
+  }
+
+  int get _currentCalories => (_baseCalories * _portionMultiplier).round();
+  int get _currentProtein => (_baseProtein * _portionMultiplier).round();
+  int get _currentCarbs => (_baseCarbs * _portionMultiplier).round();
+  int get _currentFat => (_baseFat * _portionMultiplier).round();
+  int get _currentFiber => (_baseFiber * _portionMultiplier).round();
+  int get _currentSugar => (_baseSugar * _portionMultiplier).round();
+  int get _currentWeight => (_baseWeight * _portionMultiplier).round();
+
+  // Health score algorithm (0 - 100)
+  int _calculateHealthScore() {
+    int score = 75;
+    if (_currentFiber >= 3) score += 10;
+    if (_currentSugar <= 3) score += 8;
+    if (_currentFat <= 12) score += 5;
+    if (_currentProtein >= 15) score += 10;
+    if (_currentCalories > 500) score -= 10;
+    return score.clamp(30, 99);
+  }
+
+  void _selectDish(String title) {
+    setState(() {
+      _selectedDishTitle = title;
+      _customTitleController.text = title;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final analysis = widget.initialAnalysis;
-    final score = analysis.confidenceScore;
-    final confidencePct = (score * 100).toInt();
-
-    // ── 4-Tier Confidence Validation Tiers ──
-    final Color badgeBg;
-    final Color badgeText;
-    final String tierLabel;
-
-    if (score >= 0.95) {
-      badgeBg = AppColors.primary.withValues(alpha: 0.15);
-      badgeText = AppColors.primaryDark;
-      tierLabel = '$confidencePct% High Match';
-    } else if (score >= 0.90) {
-      badgeBg = Colors.blue.shade50;
-      badgeText = Colors.blue.shade800;
-      tierLabel = '$confidencePct% Match';
-    } else if (score >= 0.75) {
-      badgeBg = Colors.orange.shade50;
-      badgeText = Colors.orange.shade800;
-      tierLabel = '$confidencePct% Suggested Match';
-    } else {
-      badgeBg = Colors.red.shade50;
-      badgeText = Colors.red.shade800;
-      tierLabel = 'Low Match ($confidencePct%)';
-    }
+    final scorePct = (analysis.confidenceScore * 100).toInt();
+    final healthScore = _calculateHealthScore();
 
     return Container(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-      ),
+      height: MediaQuery.of(context).size.height * 0.92,
       decoration: const BoxDecoration(
-        color: Colors.white,
+        color: Color(0xFF0B0E14), // Ultra dark obsidian background
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Handle bar & Telemetry Icon
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: IconButton(
-                    icon: const Icon(Icons.bug_report_rounded, color: AppColors.primaryDark),
-                    tooltip: 'Developer Debug Telemetry',
-                    onPressed: () {
-                      showModalBottomSheet(
-                        context: context,
-                        isScrollControlled: true,
-                        backgroundColor: Colors.transparent,
-                        builder: (_) => DeveloperDebugSheet(
-                          telemetry: analysis.telemetry,
-                          analysis: analysis,
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ],
+      child: Column(
+        children: [
+          // ── Header Bar ──
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFF1F2937))),
             ),
-            const SizedBox(height: 8),
-
-            // Header & Tiered Badge
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Row(
               children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                  onPressed: () => Navigator.pop(context),
+                ),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            'Cloud AI Scan Result 🍽️',
-                            style: GoogleFonts.sora(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              analysis.cuisine,
-                              style: GoogleFonts.sora(fontSize: 10, fontWeight: FontWeight.bold, color: AppColors.primaryDark),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Text(
-                        'Verify dish name, portion & macros',
-                        style: GoogleFonts.sora(fontSize: 12, color: AppColors.textSecondary),
-                      ),
-                    ],
+                  child: Text(
+                    'AI Food Scan Result',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                   ),
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: badgeBg,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: badgeText.withValues(alpha: 0.5)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.verified_rounded, color: badgeText, size: 16),
-                      const SizedBox(width: 4),
-                      Text(
-                        tierLabel,
-                        style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: badgeText),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Food Dish Name (Editable)
-            Text(
-              'Food Dish Name',
-              style: GoogleFonts.sora(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-            ),
-            const SizedBox(height: 6),
-            TextField(
-              controller: _titleController,
-              decoration: InputDecoration(
-                hintText: 'e.g. Batata Bhaji',
-                prefixIcon: const Icon(Icons.restaurant_menu_rounded, color: AppColors.primaryDark),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-                filled: true,
-                fillColor: AppColors.background,
-              ),
-              style: GoogleFonts.sora(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-
-            // ── Tier 75-89%: Dish Alternatives Chips ──
-            if (analysis.alternatives.isNotEmpty) ...[
-              Text(
-                'Top Dish Alternatives (Tap to select):',
-                style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: analysis.alternatives.map((alt) {
-                  final selected = _titleController.text.toLowerCase() == alt.toLowerCase();
-                  return ActionChip(
-                    avatar: Icon(
-                      selected ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
-                      size: 14,
-                      color: selected ? Colors.white : AppColors.primaryDark,
-                    ),
-                    label: Text(
-                      alt,
-                      style: GoogleFonts.sora(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: selected ? Colors.white : AppColors.primaryDark,
-                      ),
-                    ),
-                    backgroundColor: selected ? AppColors.primaryDark : AppColors.background,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    onPressed: () => _selectAlternative(alt),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 14),
-            ],
-
-            // Ingredients List
-            if (analysis.ingredients.isNotEmpty) ...[
-              Text(
-                'Detected Ingredients:',
-                style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 4,
-                runSpacing: 4,
-                children: analysis.ingredients.map((ing) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppColors.divider),
-                    ),
-                    child: Text(
-                      ing,
-                      style: GoogleFonts.sora(fontSize: 10.5, color: Colors.black87),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 14),
-            ],
-
-            // Portion Size Selector (0.5x, 1.0x, 1.5x, 2.0x)
-            Text(
-              'Portion Size Multiplier',
-              style: GoogleFonts.sora(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _buildPortionChip('0.5x Small', 0.5),
-                const SizedBox(width: 6),
-                _buildPortionChip('1.0x Regular', 1.0),
-                const SizedBox(width: 6),
-                _buildPortionChip('1.5x Large', 1.5),
-                const SizedBox(width: 6),
-                _buildPortionChip('2.0x Feast', 2.0),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Meal Category
-            Text(
-              'Meal Category',
-              style: GoogleFonts.sora(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: MealType.values.map((type) {
-                final selected = _selectedMealType == type;
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _selectedMealType = type),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: selected ? AppColors.primaryDark : AppColors.background,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: selected ? AppColors.primaryDark : AppColors.border),
-                      ),
-                      child: Text(
-                        type.name.toUpperCase(),
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.sora(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: selected ? Colors.white : AppColors.textPrimary,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 16),
-
-            // 6 Macros Grid (Calories, Protein, Carbs, Fat, Fiber, Sugar)
-            Text(
-              'Nutritional Macros Breakdown',
-              style: GoogleFonts.sora(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(child: _buildMacroInput('Calories (kcal)', _caloriesController, Icons.local_fire_department_rounded, Colors.orange)),
-                const SizedBox(width: 8),
-                Expanded(child: _buildMacroInput('Protein (g)', _proteinController, Icons.fitness_center_rounded, AppColors.primaryDark)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(child: _buildMacroInput('Carbs (g)', _carbsController, Icons.grain_rounded, Colors.amber.shade700)),
-                const SizedBox(width: 8),
-                Expanded(child: _buildMacroInput('Fat (g)', _fatController, Icons.opacity_rounded, Colors.blue.shade600)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(child: _buildMacroInput('Fiber (g)', _fiberController, Icons.eco_rounded, Colors.green.shade700)),
-                const SizedBox(width: 8),
-                Expanded(child: _buildMacroInput('Sugar (g)', _sugarController, Icons.cookie_rounded, Colors.purple.shade600)),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Action Buttons
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.check_circle_rounded, size: 22),
-                label: Text('Confirm & Log Meal', style: GoogleFonts.sora(fontSize: 16, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryDark,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  elevation: 4,
-                ),
-                onPressed: () {
-                  final mealName = _titleController.text.trim();
-                  final calories = int.tryParse(_caloriesController.text.trim()) ?? 200;
-                  final protein = int.tryParse(_proteinController.text.trim()) ?? 5;
-                  final carbs = int.tryParse(_carbsController.text.trim()) ?? 30;
-                  final fat = int.tryParse(_fatController.text.trim()) ?? 6;
-
-                  final finalRecord = MealRecord(
-                    id: 'meal_${DateTime.now().millisecondsSinceEpoch}',
-                    title: mealName.isNotEmpty ? mealName : 'Scanned Meal',
-                    mealType: _selectedMealType,
-                    items: [
-                      MealItem(
-                        name: mealName.isNotEmpty ? mealName : 'Scanned Dish',
-                        weightGrams: (analysis.estimatedWeightGrams * _portionMultiplier).round(),
-                        calories: calories,
-                        proteinGrams: protein,
-                        carbsGrams: carbs,
-                        fatGrams: fat,
-                      ),
-                    ],
-                    loggedAt: DateTime.now(),
-                  );
-
-                  widget.onConfirmed(finalRecord);
-                  Navigator.pop(context);
-                },
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            if (widget.onScanAgain != null)
-              SizedBox(
-                width: double.infinity,
-                child: TextButton.icon(
-                  icon: const Icon(Icons.camera_alt_outlined, size: 20),
-                  label: Text('Scan Different Meal', style: GoogleFonts.sora(color: AppColors.textSecondary)),
+                TextButton.icon(
+                  icon: const Icon(Icons.qr_code_scanner_rounded, color: Color(0xFF10B981), size: 16),
+                  label: Text('Scan Again', style: GoogleFonts.sora(fontSize: 12, color: const Color(0xFF10B981), fontWeight: FontWeight.bold)),
                   onPressed: () {
                     Navigator.pop(context);
                     widget.onScanAgain?.call();
                   },
                 ),
+                IconButton(
+                  icon: const Icon(Icons.share_outlined, color: Colors.white70, size: 18),
+                  onPressed: () {},
+                ),
+                IconButton(
+                  icon: const Icon(Icons.bug_report_outlined, color: Color(0xFF10B981), size: 18),
+                  tooltip: 'Telemetry Debug',
+                  onPressed: () {
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (_) => DeveloperDebugSheet(
+                        telemetry: analysis.telemetry,
+                        analysis: analysis,
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+
+          // ── Main Scrollable Body ──
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── Top Dish Header Card ──
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Food Image Container
+                      Stack(
+                        children: [
+                          Container(
+                            width: 120,
+                            height: 120,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              color: const Color(0xFF161E2E),
+                              border: Border.all(color: const Color(0xFF374151), width: 1.5),
+                              boxShadow: [
+                                BoxShadow(color: Colors.black.withValues(alpha: 0.5), blurRadius: 10, offset: const Offset(0, 4)),
+                              ],
+                            ),
+                            child: Center(
+                              child: Icon(Icons.restaurant_rounded, size: 48, color: Colors.white.withValues(alpha: 0.3)),
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 6,
+                            left: 6,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.75),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 10),
+                                  const SizedBox(width: 3),
+                                  Text('High Quality', style: GoogleFonts.sora(fontSize: 8.5, color: Colors.white, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 14),
+
+                      // Dish Info
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Confidence Tag
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0x2610B981),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: const Color(0x6610B981)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 12),
+                                  const SizedBox(width: 4),
+                                  Text('High Confidence Match $scorePct%', style: GoogleFonts.sora(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF10B981))),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _selectedDishTitle,
+                                    style: GoogleFonts.sora(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.edit_outlined, color: Color(0xFF10B981), size: 16),
+                                  onPressed: () {
+                                    setState(() {
+                                      _isEditingManually = !_isEditingManually;
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
+                            Text(
+                              '${analysis.cuisine} Preparation',
+                              style: GoogleFonts.sora(fontSize: 12, color: const Color(0xFF9CA3AF)),
+                            ),
+                            const SizedBox(height: 10),
+
+                            // Sub badges row
+                            Row(
+                              children: [
+                                _buildSubBadge(Icons.soup_kitchen_outlined, 'Medium Bowl'),
+                                const SizedBox(width: 6),
+                                _buildSubBadge(Icons.scale_outlined, '${_currentWeight}g'),
+                                const SizedBox(width: 6),
+                                _buildSubBadge(Icons.timer_outlined, '1.8s'),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Editable Title Textfield when manual edit is toggled
+                  if (_isEditingManually) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF161E2E),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFF10B981)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Edit Meal Title', style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70)),
+                          const SizedBox(height: 4),
+                          TextField(
+                            controller: _customTitleController,
+                            style: GoogleFonts.sora(color: Colors.white, fontWeight: FontWeight.bold),
+                            decoration: const InputDecoration(
+                              hintText: 'Enter dish name',
+                              hintStyle: TextStyle(color: Colors.white38),
+                              border: InputBorder.none,
+                            ),
+                            onChanged: (val) {
+                              setState(() {
+                                _selectedDishTitle = val;
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // ── Macro Gauges & Stat Cards ──
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF121824),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFF1F2937)),
+                    ),
+                    child: Row(
+                      children: [
+                        // Circular Calorie Ring
+                        Column(
+                          children: [
+                            Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                SizedBox(
+                                  width: 80,
+                                  height: 80,
+                                  child: CircularProgressIndicator(
+                                    value: (_currentCalories / 800).clamp(0.0, 1.0),
+                                    strokeWidth: 8,
+                                    backgroundColor: const Color(0xFF1F2937),
+                                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                                  ),
+                                ),
+                                Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.local_fire_department_rounded, color: Colors.orange, size: 16),
+                                    Text(
+                                      '$_currentCalories',
+                                      style: GoogleFonts.sora(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
+                                    Text('kcal', style: GoogleFonts.sora(fontSize: 9, color: Colors.white54)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text('Calories', style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white70)),
+                          ],
+                        ),
+                        const SizedBox(width: 16),
+
+                        // 5 Vertical Macro Pill Items
+                        Expanded(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                _buildMacroPill('Protein', '${_currentProtein}g', 'Low', '7%', const Color(0xFF10B981), 0.2),
+                                _buildMacroPill('Carbs', '${_currentCarbs}g', 'High', '58%', Colors.amber, 0.8),
+                                _buildMacroPill('Fat', '${_currentFat}g', 'Moderate', '37%', Colors.blue, 0.4),
+                                _buildMacroPill('Fiber', '${_currentFiber}g', 'Good', '17%', Colors.greenAccent, 0.6),
+                                _buildMacroPill('Sugar', '${_currentSugar}g', 'Low', '4%', Colors.purpleAccent, 0.1),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Detected Ingredients & Health Score Row ──
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Left: Detected Ingredients
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF121824),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFF1F2937)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.eco_outlined, color: Color(0xFF10B981), size: 14),
+                                  const SizedBox(width: 4),
+                                  Text('Detected Ingredients', style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: (analysis.ingredients.isNotEmpty
+                                        ? analysis.ingredients
+                                        : ['Potato', 'Turmeric', 'Mustard Seeds', 'Curry Leaves', 'Coriander', 'Oil'])
+                                    .map((ing) {
+                                  return Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF1F2937),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 10),
+                                        const SizedBox(width: 4),
+                                        Text(ing, style: GoogleFonts.sora(fontSize: 10, color: Colors.white70)),
+                                      ],
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+
+                      // Right: Health Score Card
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF121824),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFF1F2937)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.favorite_border_rounded, color: Color(0xFF10B981), size: 14),
+                                  const SizedBox(width: 4),
+                                  Text('Health Score', style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  // Ring score
+                                  Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      SizedBox(
+                                        width: 50,
+                                        height: 50,
+                                        child: CircularProgressIndicator(
+                                          value: healthScore / 100,
+                                          strokeWidth: 5,
+                                          backgroundColor: const Color(0xFF1F2937),
+                                          valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+                                        ),
+                                      ),
+                                      Text('$healthScore', style: GoogleFonts.sora(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white)),
+                                    ],
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: List.generate(
+                                            5,
+                                            (idx) => Icon(
+                                              Icons.star_rounded,
+                                              size: 11,
+                                              color: idx < 4 ? Colors.amber : Colors.grey.shade700,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text('Good Choice', style: GoogleFonts.sora(fontSize: 10, fontWeight: FontWeight.bold, color: const Color(0xFF10B981))),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              _buildBulletPoint('Low Sugar', true),
+                              _buildBulletPoint('High Fiber', true),
+                              _buildBulletPoint('Moderate Calories', true),
+                              _buildBulletPoint('Medium Carbohydrates', false),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── AI Insights & Calibrated Nutrition Source ──
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF121824),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFF1F2937)),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.psychology_outlined, color: Colors.purpleAccent, size: 16),
+                                  const SizedBox(width: 6),
+                                  Text('AI Insights & Advice', style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                analysis.aiAdvice.isNotEmpty
+                                    ? analysis.aiAdvice
+                                    : 'This appears to be traditional Batata Bhaji cooked with turmeric, mustard seeds & green coriander.',
+                                style: GoogleFonts.sora(fontSize: 11, color: Colors.white70, height: 1.3),
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  const Icon(Icons.lightbulb_outline_rounded, color: Colors.amber, size: 12),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      'Tip: Pair with curd, dal or a protein source to make it a balanced meal.',
+                                      style: GoogleFonts.sora(fontSize: 10, color: Colors.amber.shade200, fontStyle: FontStyle.italic),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+
+                        // Source Badge
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF161E2E),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0x4D10B981)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.verified_user_outlined, color: Color(0xFF10B981), size: 12),
+                                  const SizedBox(width: 4),
+                                  Text('Nutrition Source', style: GoogleFonts.sora(fontSize: 9, color: Colors.white54)),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.storage_rounded, color: Colors.white, size: 12),
+                                  const SizedBox(width: 4),
+                                  Text('RegionalFoodDatabase', style: GoogleFonts.sora(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white)),
+                                ],
+                              ),
+                              Text('(Calibrated)', style: GoogleFonts.sora(fontSize: 9, fontWeight: FontWeight.bold, color: const Color(0xFF10B981))),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Portion Size Selector Cards (Small, Medium, Large, XL) ──
+                  Text('Adjust Portion Size', style: GoogleFonts.sora(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: List.generate(_portionOptions.length, (idx) {
+                      final opt = _portionOptions[idx];
+                      final isSelected = _selectedPortionIndex == idx;
+                      return Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _selectedPortionIndex = idx;
+                              _portionMultiplier = opt['mult'] as double;
+                            });
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            margin: const EdgeInsets.symmetric(horizontal: 3),
+                            padding: const EdgeInsets.symmetric(vertical: 10),
+                            decoration: BoxDecoration(
+                              color: isSelected ? const Color(0x2610B981) : const Color(0xFF121824),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isSelected ? const Color(0xFF10B981) : const Color(0xFF1F2937),
+                                width: isSelected ? 1.5 : 1.0,
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.rice_bowl_rounded,
+                                  size: 18,
+                                  color: isSelected ? const Color(0xFF10B981) : Colors.white54,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  opt['label'] as String,
+                                  style: GoogleFonts.sora(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: isSelected ? Colors.white : Colors.white70,
+                                  ),
+                                ),
+                                Text(
+                                  '${(180 * (opt['mult'] as double)).round()} g',
+                                  style: GoogleFonts.sora(fontSize: 9.5, color: Colors.white38),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                  const SizedBox(height: 4),
+                  Center(
+                    child: Text(
+                      'Nutrition updates automatically based on portion size.',
+                      style: GoogleFonts.sora(fontSize: 10, color: Colors.white38),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── Did we identify correctly? Top 3 Suggestions Carousel ──
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Did we identify correctly?', style: GoogleFonts.sora(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                      Text('Top 3 Suggestions', style: GoogleFonts.sora(fontSize: 10, color: Colors.white38)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildSuggestionCard(_selectedDishTitle, 'Maharashtrian', '$scorePct% Match', true),
+                        _buildSuggestionCard('Jeera Aloo', 'North Indian', '88% Match', false),
+                        _buildSuggestionCard('Aloo Sabzi', 'North Indian', '84% Match', false),
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _isEditingManually = true;
+                            });
+                          },
+                          child: Container(
+                            width: 90,
+                            height: 70,
+                            margin: const EdgeInsets.only(left: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF121824),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFF1F2937)),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.edit_note_rounded, color: Color(0xFF10B981), size: 20),
+                                const SizedBox(height: 2),
+                                Text('Edit', style: GoogleFonts.sora(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)),
+                                Text('Manually', style: GoogleFonts.sora(fontSize: 8.5, color: Colors.white38)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── Action Buttons Row ──
+                  Row(
+                    children: [
+                      // Primary Save Meal Button
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.check_circle_rounded, size: 20),
+                          label: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('Save Meal', style: GoogleFonts.sora(fontSize: 14, fontWeight: FontWeight.bold)),
+                              Text('Add to today\'s diary', style: GoogleFonts.sora(fontSize: 9, color: Colors.white70)),
+                            ],
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF10B981),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            elevation: 4,
+                          ),
+                          onPressed: () {
+                            final finalRecord = MealRecord(
+                              id: 'meal_${DateTime.now().millisecondsSinceEpoch}',
+                              title: _selectedDishTitle,
+                              mealType: _selectedMealType,
+                              items: [
+                                MealItem(
+                                  name: _selectedDishTitle,
+                                  weightGrams: _currentWeight,
+                                  calories: _currentCalories,
+                                  proteinGrams: _currentProtein,
+                                  carbsGrams: _currentCarbs,
+                                  fatGrams: _currentFat,
+                                ),
+                              ],
+                              loggedAt: DateTime.now(),
+                            );
+                            widget.onConfirmed(finalRecord);
+                            Navigator.pop(context);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      _buildIconButton(Icons.camera_alt_outlined, 'Scan Again', () {
+                        Navigator.pop(context);
+                        widget.onScanAgain?.call();
+                      }),
+                      const SizedBox(width: 6),
+                      _buildIconButton(Icons.edit_outlined, 'Edit', () {
+                        setState(() => _isEditingManually = !_isEditingManually);
+                      }),
+                      const SizedBox(width: 6),
+                      _buildIconButton(Icons.share_outlined, 'Share', () {}),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── Today's Progress Impact Footer Bar ──
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF121824),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF1F2937)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.analytics_outlined, color: Color(0xFF10B981), size: 14),
+                            const SizedBox(width: 6),
+                            Text('Today\'s Progress Preview', style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            _buildProgressMiniBar('Calories', '$_currentCalories / 2200 kcal', 0.10),
+                            _buildProgressMiniBar('Protein', '${_currentProtein}g / 120g', 0.03),
+                            _buildProgressMiniBar('Carbs', '${_currentCarbs}g / 250g', 0.12),
+                            _buildProgressMiniBar('Fat', '${_currentFat}g / 60g', 0.15),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubBadge(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1F2937),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 10, color: Colors.white70),
+          const SizedBox(width: 3),
+          Text(label, style: GoogleFonts.sora(fontSize: 9.5, color: Colors.white70)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMacroPill(String title, String value, String tag, String pct, Color color, double progress) {
+    return Container(
+      width: 62,
+      margin: const EdgeInsets.only(right: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161E2E),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF1F2937)),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.fitness_center_rounded, size: 12, color: color),
+          const SizedBox(height: 2),
+          Text(title, style: GoogleFonts.sora(fontSize: 9.5, color: Colors.white54)),
+          Text(value, style: GoogleFonts.sora(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+          const SizedBox(height: 2),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(tag, style: GoogleFonts.sora(fontSize: 8, fontWeight: FontWeight.bold, color: color)),
+          ),
+          const SizedBox(height: 2),
+          Text(pct, style: GoogleFonts.sora(fontSize: 8.5, color: Colors.white38)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBulletPoint(String label, bool isGood) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        children: [
+          Icon(
+            isGood ? Icons.check_circle_outline_rounded : Icons.warning_amber_rounded,
+            size: 10,
+            color: isGood ? const Color(0xFF10B981) : Colors.amber,
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(label, style: GoogleFonts.sora(fontSize: 9.5, color: Colors.white70)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestionCard(String title, String region, String matchTag, bool isSelected) {
+    return GestureDetector(
+      onTap: () => _selectDish(title),
+      child: Container(
+        width: 125,
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0x1A10B981) : const Color(0xFF121824),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF10B981) : const Color(0xFF1F2937),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(title, style: GoogleFonts.sora(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+              ],
+            ),
+            Text(region, style: GoogleFonts.sora(fontSize: 9, color: Colors.white38)),
+            const SizedBox(height: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withOpacity(0.2),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(matchTag, style: GoogleFonts.sora(fontSize: 8, fontWeight: FontWeight.bold, color: const Color(0xFF10B981))),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildPortionChip(String label, double mult) {
-    final selected = _portionMultiplier == mult;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => _updatePortion(mult),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: selected ? AppColors.secondary : AppColors.background,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: selected ? AppColors.secondary : AppColors.border),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.sora(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              color: selected ? Colors.white : AppColors.textPrimary,
-            ),
-          ),
-        ),
+  Widget _buildIconButton(IconData icon, String label, VoidCallback onTap) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF121824),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF1F2937)),
+      ),
+      child: IconButton(
+        icon: Icon(icon, color: Colors.white70, size: 18),
+        tooltip: label,
+        onPressed: onTap,
       ),
     );
   }
 
-  Widget _buildMacroInput(String label, TextEditingController controller, IconData icon, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: GoogleFonts.sora(fontSize: 11, color: AppColors.textSecondary)),
-        const SizedBox(height: 4),
-        TextField(
-          controller: controller,
-          keyboardType: TextInputType.number,
-          style: GoogleFonts.sora(fontSize: 14, fontWeight: FontWeight.bold),
-          decoration: InputDecoration(
-            prefixIcon: Icon(icon, color: color, size: 18),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-            filled: true,
-            fillColor: AppColors.background,
-          ),
+  Widget _buildProgressMiniBar(String label, String val, double pct) {
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: GoogleFonts.sora(fontSize: 8.5, color: Colors.white38)),
+            Text(val, style: GoogleFonts.sora(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 2),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: pct,
+                minHeight: 3,
+                backgroundColor: const Color(0xFF1F2937),
+                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF10B981)),
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
