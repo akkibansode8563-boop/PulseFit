@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/services/ai_service.dart';
+import '../../data/datasources/regional_food_database.dart';
 import '../../domain/entities/meal_record.dart';
 import 'developer_debug_sheet.dart';
 
@@ -94,6 +95,25 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
     setState(() {
       _selectedDishTitle = title;
       _customTitleController.text = title;
+    });
+  }
+
+  void _selectAlternative(String altName) {
+    setState(() {
+      _selectedDishTitle = altName;
+      _customTitleController.text = altName;
+      final matched = RegionalFoodDatabase.findClosestMatch(altName);
+      if (matched != null) {
+        final double ratio = matched.typicalServingGrams / 100.0;
+        _baseCalories = (matched.caloriesPer100g * ratio).round();
+        _baseProtein = (matched.proteinPer100g * ratio).round();
+        _baseCarbs = (matched.carbsPer100g * ratio).round();
+        _baseFat = (matched.fatPer100g * ratio).round();
+        _baseFiber = (matched.fiberPer100g * ratio).round();
+        _baseSugar = (matched.sugarPer100g * ratio).round();
+        _baseWeight = matched.typicalServingGrams;
+        _customCalsController.text = _baseCalories.toString();
+      }
     });
   }
 
@@ -260,6 +280,37 @@ class _FoodVerificationSheetState extends State<FoodVerificationSheet> {
                               '${analysis.cuisine} Preparation',
                               style: GoogleFonts.sora(fontSize: 12, color: const Color(0xFF9CA3AF)),
                             ),
+                            if (analysis.alternatives.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Text(
+                                    'Did you mean:',
+                                    style: GoogleFonts.sora(fontSize: 11, color: const Color(0xFF9CA3AF), fontWeight: FontWeight.w500),
+                                  ),
+                                  ...analysis.alternatives.map((alt) {
+                                    final bool isSelected = _selectedDishTitle.contains(alt);
+                                    return ActionChip(
+                                      label: Text(
+                                        alt,
+                                        style: GoogleFonts.sora(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: isSelected ? Colors.black : const Color(0xFF10B981),
+                                        ),
+                                      ),
+                                      backgroundColor: isSelected ? const Color(0xFF10B981) : const Color(0x1A10B981),
+                                      side: BorderSide.none,
+                                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                                      onPressed: () => _selectAlternative(alt),
+                                    );
+                                  }),
+                                ],
+                              ),
+                            ],
                             const SizedBox(height: 10),
 
                             // Sub badges row
